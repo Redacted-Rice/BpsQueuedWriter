@@ -120,8 +120,8 @@ public class BpsWriter implements QueuedWriter {
 
     public void newCopyHunk(String name, int destinationIndex, BpsHunkCopyType type, int size,
             int copyFromStartIndex) {
-        BpsHunkCopy copyHunk = new BpsHunkCopy(name, destinationIndex, type, size,
-                copyFromStartIndex);
+        BpsHunkCopy copyHunk =
+                new BpsHunkCopy(name, destinationIndex, type, size, copyFromStartIndex);
         newHunkCommon(copyHunk);
     }
 
@@ -164,7 +164,7 @@ public class BpsWriter implements QueuedWriter {
             AddressRange bestMatch = getBestMatch(hunkDesiredBytes, hunkSpot);
 
             // If its worth copying (right now at least 4 length)
-            if (bestMatch.size() > 3 || // TODO: Make option
+            if (bestMatch.size() > 3 || // TODO: Make an option?
                     hunkSpot + bestMatch.size() == hunkDesiredBytes.length) // Matches to the end
             {
                 // Write the self copy if needed
@@ -198,7 +198,7 @@ public class BpsWriter implements QueuedWriter {
         }
     }
 
-    // TODO: Move to a utility?
+    // TODO now: Move to a utility?
     private AddressRange getBestMatch(byte[] hunkDesiredBytes, int hunkSpot) {
         // For each reuse hint, we will search for matching strings
         int bestAddress = 0;
@@ -283,7 +283,7 @@ public class BpsWriter implements QueuedWriter {
             }
             // We filled too much of a gap or we have overlap between hunks
             else if (hunk.getDestinationIndex() < lastEndAddressExclusive) {
-                // TODO: error
+                // TODO now: Log?
                 throw new IllegalArgumentException("Ovelapping hunks detected! TODO");
             }
             // else the space matches up to the end of the previous hunk - we don't need to do
@@ -297,6 +297,7 @@ public class BpsWriter implements QueuedWriter {
 
         // Ensure the target wasn't too short
         if (targetLength < lastEndAddressExclusive) {
+            // TODO now: Error message and LOG?
             throw new IllegalArgumentException("TODO");
         }
 
@@ -305,7 +306,7 @@ public class BpsWriter implements QueuedWriter {
                 nextBlankItr, fillerHunks);
 
         // Now add in the filler hunks
-        // TODO: Check for overlap? CheckAndAddAll?
+        // TODO now: Check for overlap? CheckAndAddAll?
         hunks.addAll(fillerHunks);
     }
 
@@ -401,7 +402,7 @@ public class BpsWriter implements QueuedWriter {
         }
     }
 
-    // TODO: Minor Take metadata?
+    // TODO: Take metadata?
     public void writeBps(File file, List<AddressRange> toBlank) {
         // Ensure any pending ones are finalized prior to writing
         finalizeSelfReadBeingCreated();
@@ -410,12 +411,12 @@ public class BpsWriter implements QueuedWriter {
         // We aren't making the rom longer so we pass the same length twice
         fillHunkSpacesWithBlanksOrSourceReads(sourceBytes.length, sourceBytes.length, toBlank);
 
-        // TODO: Overlap & gap (target final length) checking?
+        // TODO now: Overlap & gap (target final length) checking?
 
         // Set the offsets for writing
         BpsHunkCopy.setOffsetsForWriting();
 
-        // TODO: Support differing sizes
+        // TODO now: Support differing sizes
         byte[] targetBytes = sourceBytes.clone();
 
         // Start writing the bytes for the BPS and the header
@@ -429,7 +430,7 @@ public class BpsWriter implements QueuedWriter {
             // Write the sizes in four byte sizes
             bpsOs.write(ByteUtils.sevenBitEncode(sourceBytes.length));
             bpsOs.write(ByteUtils.sevenBitEncode(targetBytes.length));
-            bpsOs.write(ByteUtils.sevenBitEncode(0)); // TODO: Minor For now no metadata
+            bpsOs.write(ByteUtils.sevenBitEncode(0));
 
             // Write the hunks to the patch output stream
             for (BpsHunk hunk : hunks) {
@@ -450,15 +451,13 @@ public class BpsWriter implements QueuedWriter {
             // So we get the BPS bytes written, write them, calculate the CRC
             // then write that
             byte[] bpsBytes = bpsOs.toByteArray();
-            // TODO: BPS temp
-            // fos.write(targetBytes);
             fos.write(bpsBytes);
             fos.write(ByteUtils.toLittleEndianBytes(ByteUtils.computeCrc32(bpsBytes), 4));
         } catch (FileNotFoundException e) {
-            // TODO Auto-generated catch block
+            // TODO now: Log?
             e.printStackTrace();
         } catch (IOException e) {
-            // TODO Auto-generated catch block
+            // TODO now: Log?
             e.printStackTrace();
         }
     }

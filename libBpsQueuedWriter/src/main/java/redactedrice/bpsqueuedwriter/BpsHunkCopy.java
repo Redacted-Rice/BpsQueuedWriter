@@ -36,7 +36,7 @@ public class BpsHunkCopy extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        // TODO: More logic for target to make sure we don't make it too large or anything
+        // TODO now: More logic for target to make sure we don't make it too large or anything
         if (nextHunk instanceof BpsHunkCopy && doesHunkAlign(nextHunk)) {
             if (copyFromIndex + getLength() == ((BpsHunkCopy) nextHunk).copyFromIndex) {
                 extendCommonData(nextHunk);
