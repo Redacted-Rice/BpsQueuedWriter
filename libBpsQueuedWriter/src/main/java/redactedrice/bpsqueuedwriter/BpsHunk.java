@@ -64,8 +64,8 @@ public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
 
     public abstract void write(ByteArrayOutputStream bpsOs) throws IOException;
 
+    // TODO: Add a curr index if we want to do this check
     protected void checkDestinationIndex(ByteArrayOutputStream bpsOs) {
-        // TODO: Add a curr index if we want to do this check
         // if (bpsOs.size() != destinationIndex)
         // {
         // throw new IllegalArgumentException("Internal error: Destination Index "
