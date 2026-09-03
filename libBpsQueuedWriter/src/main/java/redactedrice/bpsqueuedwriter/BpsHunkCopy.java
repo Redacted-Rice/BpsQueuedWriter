@@ -5,7 +5,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.EnumMap;
 
-import redactedrice.bpsqueuedwriter.BpsWriter.BpsHunkCopyType;
 import redactedrice.gbcframework.utils.ByteUtils;
 
 public class BpsHunkCopy extends BpsHunk {
