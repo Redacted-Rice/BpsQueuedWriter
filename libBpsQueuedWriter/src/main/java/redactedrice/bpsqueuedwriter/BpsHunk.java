@@ -8,6 +8,7 @@ import redactedrice.gbcframework.utils.ByteUtils;
 
 public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
     public static final String DEFAULT_NAME = "UNNAMED_HUNK";
+    public static final int MAX_HUNK_LENGTH = 0xFFFF;
 
     public enum BpsHunkType {
         SOURCE_READ(0), SELF_READ(1), SOURCE_COPY(2), TARGET_COPY(3);
@@ -37,6 +38,7 @@ public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
     private int length;
 
     protected BpsHunk(String name, int destinationIndex, BpsHunkType type, int length) {
+        validateHunkLength(length);
         this.name = name;
         this.destinationIndex = destinationIndex;
         this.type = type;
@@ -44,10 +46,25 @@ public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
     }
 
     protected BpsHunk(int destinationIndex, BpsHunkType type, int length) {
+        validateHunkLength(length);
         this.name = DEFAULT_NAME;
         this.destinationIndex = destinationIndex;
         this.type = type;
         this.length = length;
+    }
+
+    protected static void validateHunkLength(int length) {
+        if (length < 1) {
+            throw new IllegalArgumentException("BPS hunk length must be at least 1: " + length);
+        }
+        if (length > MAX_HUNK_LENGTH) {
+            throw new IllegalArgumentException(
+                    "BPS hunk length exceeds max of " + MAX_HUNK_LENGTH + ": " + length);
+        }
+    }
+
+    protected boolean canExtend(BpsHunk nextHunk) {
+        return getLength() + nextHunk.getLength() <= MAX_HUNK_LENGTH;
     }
 
     public abstract boolean tryExtend(BpsHunk nextHunk);
@@ -64,18 +81,18 @@ public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
 
     public abstract void write(ByteArrayOutputStream bpsOs) throws IOException;
 
-    // TODO: Add a curr index if we want to do this check
-    protected void checkDestinationIndex(ByteArrayOutputStream bpsOs) {
-        // if (bpsOs.size() != destinationIndex)
-        // {
-        // throw new IllegalArgumentException("Internal error: Destination Index "
-        // + "mismatch in byte array output stream while writting BPS. Expected "
-        // + "index " + destinationIndex + " but output stream is at " +
-        // bpsOs.size());
-        // }
+    public void checkRomCursor(int romCursor) {
+        if (getDestinationIndex() != romCursor) {
+            throw new IllegalStateException("BPS hunk \"" + getName() + "\" starts at ROM index "
+                    + getDestinationIndex() + " but expected " + romCursor);
+        }
     }
 
     protected void writeHunkHeader(ByteArrayOutputStream bpsOs) throws IOException {
+        if (getLength() > MAX_HUNK_LENGTH) {
+            throw new IllegalStateException("BPS hunk \"" + getName() + "\" length " + getLength()
+                    + " exceeds max of " + MAX_HUNK_LENGTH);
+        }
         // We know the length is at least 1
         long hunkLength = (((long) getLength() & 0xFFFF) - 1) << 2;
         long hunkValue = ((long) getType().getValue()) & 0xFF;

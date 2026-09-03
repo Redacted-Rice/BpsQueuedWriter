@@ -43,7 +43,7 @@ public class BpsHunkSelfRead extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        if (nextHunk instanceof BpsHunkSelfRead && doesHunkAlign(nextHunk)) {
+        if (nextHunk instanceof BpsHunkSelfRead && doesHunkAlign(nextHunk) && canExtend(nextHunk)) {
             extendCommonData(nextHunk);
             this.data.addAll(((BpsHunkSelfRead) nextHunk).data);
             return true;
@@ -62,7 +62,6 @@ public class BpsHunkSelfRead extends BpsHunk {
 
     @Override
     public void write(ByteArrayOutputStream bpsOs) throws IOException {
-        checkDestinationIndex(bpsOs);
         writeHunkHeader(bpsOs);
         for (byte[] entry : data) {
             bpsOs.write(entry);

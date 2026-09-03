@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
 import redactedrice.bpsqueuedwriter.BpsHunk.BpsHunkType;
 import redactedrice.gbcframework.QueuedWriter;
@@ -51,6 +52,7 @@ public class BpsWriter implements QueuedWriter {
 
         selfReadBeingCreatedDestIndex = -1;
         selfReadBeingCreated = new ByteArrayOutputStream();
+        selfReadBeingCreatedReuse = new ArrayList<>();
     }
 
     @Override
@@ -74,6 +76,7 @@ public class BpsWriter implements QueuedWriter {
         finalizeSelfReadBeingCreated();
         selfReadBeingCreatedDestIndex = segmentStartAddress;
         selfReadBeingCreatedName = segmentName;
+        selfReadBeingCreatedReuse = new ArrayList<>();
     }
 
     @Override
@@ -103,44 +106,76 @@ public class BpsWriter implements QueuedWriter {
     }
 
     public void newSourceRead(int readFromIndex, int size) {
-        BpsHunkSourceRead sourceReadHunk = new BpsHunkSourceRead(readFromIndex, size);
-        newHunkCommon(sourceReadHunk);
+        newSourceRead(BpsHunkSourceRead.DEFAULT_NAME, readFromIndex, size);
     }
 
     public void newSourceRead(String name, int readFromIndex, int size) {
-        BpsHunkSourceRead sourceReadHunk = new BpsHunkSourceRead(name, readFromIndex, size);
-        newHunkCommon(sourceReadHunk);
+        addSourceReadHunksWithFinalize(name, readFromIndex, size);
     }
 
     public void newCopyHunk(int destinationIndex, BpsHunkCopyType type, int size,
             int copyFromStartIndex) {
-        BpsHunkCopy copyHunk = new BpsHunkCopy(destinationIndex, type, size, copyFromStartIndex);
-        newHunkCommon(copyHunk);
+        newCopyHunk(BpsHunkCopy.DEFAULT_NAME, destinationIndex, type, size, copyFromStartIndex);
     }
 
     public void newCopyHunk(String name, int destinationIndex, BpsHunkCopyType type, int size,
             int copyFromStartIndex) {
-        BpsHunkCopy copyHunk =
-                new BpsHunkCopy(name, destinationIndex, type, size, copyFromStartIndex);
-        newHunkCommon(copyHunk);
+        addCopyHunksWithFinalize(name, destinationIndex, type, size, copyFromStartIndex);
     }
 
-    private void newHunkCommon(BpsHunk hunk) {
-        // Check that this hunk doesn't overwrite any others
+    @FunctionalInterface
+    private interface ChunkedHunkBuilder {
+        BpsHunk build(String chunkName, int destinationIndex, int chunkLength, int chunkOffset);
+    }
+
+    private static String chunkName(String namePrefix, int chunkIndex) {
+        return chunkIndex == 0 ? namePrefix : namePrefix + "_chunk" + chunkIndex;
+    }
+
+    private void buildChunkedHunks(String namePrefix, int destinationIndex, int length,
+            ChunkedHunkBuilder builder, Consumer<BpsHunk> hunkConsumer) {
+        int remaining = length;
+        int dest = destinationIndex;
+        int chunkIndex = 0;
+        while (remaining > 0) {
+            int chunkLength = Math.min(remaining, BpsHunk.MAX_HUNK_LENGTH);
+            int chunkOffset = dest - destinationIndex;
+            hunkConsumer.accept(builder.build(chunkName(namePrefix, chunkIndex), dest, chunkLength,
+                    chunkOffset));
+            dest += chunkLength;
+            remaining -= chunkLength;
+            chunkIndex++;
+        }
+    }
+
+    private void addSourceReadHunksWithFinalize(String namePrefix, int destinationIndex,
+            int length) {
         finalizeSelfReadBeingCreated();
-        checkAndAddHunk(hunk);
+        buildChunkedHunks(namePrefix, destinationIndex, length,
+                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSourceRead(chunkName,
+                        dest, chunkLength),
+                this::checkAndAddHunk);
+    }
+
+    private void addCopyHunksWithFinalize(String name, int destinationIndex, BpsHunkCopyType type,
+            int size, int copyFromStartIndex) {
+        finalizeSelfReadBeingCreated();
+        buildChunkedHunks(name, destinationIndex, size,
+                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkCopy(chunkName, dest,
+                        type, chunkLength, copyFromStartIndex + chunkOffset),
+                this::checkAndAddHunk);
     }
 
     private void finalizeSelfReadBeingCreated() {
-        if (selfReadBeingCreatedDestIndex > 0 && selfReadBeingCreated.size() > 0) {
+        if (selfReadBeingCreatedDestIndex >= 0 && selfReadBeingCreated.size() > 0) {
             // If there are reuse hints, check now to see if we can reuse the source
             // Possibly in the future we could add target/inter-patch reuse but for now just
             // worry about source reuse as its the more problematic one
             if (!selfReadBeingCreatedReuse.isEmpty()) {
                 createHunksBasedOnHints();
             } else {
-                checkAndAddHunk(new BpsHunkSelfRead(selfReadBeingCreatedName,
-                        selfReadBeingCreatedDestIndex, selfReadBeingCreated.toByteArray()));
+                checkAndAddSelfReadBytes(selfReadBeingCreatedName, selfReadBeingCreatedDestIndex,
+                        selfReadBeingCreated.toByteArray());
             }
 
             selfReadBeingCreated.reset();
@@ -162,43 +197,65 @@ public class BpsWriter implements QueuedWriter {
         while (hunkSpot < hunkDesiredBytes.length) {
             // Look for a segment match starting with this byte in the hunk
             AddressRange bestMatch = getBestMatch(hunkDesiredBytes, hunkSpot);
+            int matchSize = Math.min(bestMatch.size(), BpsHunk.MAX_HUNK_LENGTH);
 
             // If its worth copying (right now at least 4 length)
-            if (bestMatch.size() > 3 || // TODO: Make an option?
-                    hunkSpot + bestMatch.size() == hunkDesiredBytes.length) // Matches to the end
+            if (matchSize > 3 || // TODO: Make an option?
+                    hunkSpot + matchSize == hunkDesiredBytes.length) // Matches to the end
             {
                 // Write the self copy if needed
                 if (lastMatchSpot != hunkSpot) {
-                    // Write from the last match spot to the current spot
-                    checkAndAddHunk(new BpsHunkSelfRead(
+                    checkAndAddSelfReadBytes(
                             selfReadBeingCreatedName + hunksCreated++ + "_selfRead",
                             selfReadBeingCreatedDestIndex + lastMatchSpot,
-                            Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkSpot)));
+                            Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkSpot));
                 }
 
                 // Now update the last match spot and write from the current spot to there
-                lastMatchSpot = hunkSpot + bestMatch.size();
+                lastMatchSpot = hunkSpot + matchSize;
                 checkAndAddHunk(new BpsHunkCopy(selfReadBeingCreatedName + hunksCreated++ + "_copy",
                         selfReadBeingCreatedDestIndex + hunkSpot, BpsHunkCopyType.SOURCE_COPY,
-                        bestMatch.size(), bestMatch.getStart()));
+                        matchSize, bestMatch.getStart()));
 
-                // + 1 to move to the next unmatched spot
                 hunkSpot = lastMatchSpot;
+                if (matchSize < bestMatch.size()) {
+                    continue;
+                }
             }
             hunkSpot++;
         }
 
         // Write the trailing self read if we didn't match to the end
         if (hunkDesiredBytes.length > lastMatchSpot) {
-            // Write from the last match spot to the current spot
-            checkAndAddHunk(
-                    new BpsHunkSelfRead(selfReadBeingCreatedName + hunksCreated++ + "_selfRead",
-                            selfReadBeingCreatedDestIndex + lastMatchSpot,
-                            Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkSpot)));
+            checkAndAddSelfReadBytes(selfReadBeingCreatedName + hunksCreated++ + "_selfRead",
+                    selfReadBeingCreatedDestIndex + lastMatchSpot,
+                    Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkDesiredBytes.length));
         }
     }
 
-    // TODO now: Move to a utility?
+    private void checkAndAddSelfReadBytes(String name, int destinationIndex, byte[] data) {
+        buildChunkedHunks(name, destinationIndex, data.length,
+                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSelfRead(chunkName, dest,
+                        Arrays.copyOfRange(data, chunkOffset, chunkOffset + chunkLength)),
+                this::checkAndAddHunk);
+    }
+
+    private void appendSourceReadHunks(TreeSet<BpsHunk> toAppendTo, String namePrefix,
+            int destinationIndex, int length) {
+        buildChunkedHunks(namePrefix, destinationIndex, length,
+                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSourceRead(chunkName,
+                        dest, chunkLength),
+                toAppendTo::add);
+    }
+
+    private void appendBlankSelfReadHunks(TreeSet<BpsHunk> toAppendTo, String namePrefix,
+            int destinationIndex, byte fillByte, int length) {
+        buildChunkedHunks(namePrefix, destinationIndex, length,
+                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSelfRead(chunkName, dest,
+                        fillByte, chunkLength),
+                toAppendTo::add);
+    }
+
     private AddressRange getBestMatch(byte[] hunkDesiredBytes, int hunkSpot) {
         // For each reuse hint, we will search for matching strings
         int bestAddress = 0;
@@ -212,11 +269,11 @@ public class BpsWriter implements QueuedWriter {
                 // If it matches, see for how long it matches
                 if (hunkDesiredBytes[hunkSpot] == sourceBytes[startAddress]) {
                     int matchCount = 0;
-                    while (startAddress + matchCount < range.getStopExclusive() && // Not at the end
-                                                                                   // of the hint
-                            hunkSpot + matchCount < hunkDesiredBytes.length && // Not the end of the
-                                                                               // matcher bytes
-                            hunkDesiredBytes[hunkSpot + matchCount] == sourceBytes[startAddress
+                    // While 1. Not at the end of the hint, 2. Not at the end of the matcher bytes,
+                    // 3. and the bytes match
+                    while (startAddress + matchCount < range.getStopExclusive()
+                            && hunkSpot + matchCount < hunkDesiredBytes.length
+                            && hunkDesiredBytes[hunkSpot + matchCount] == sourceBytes[startAddress
                                     + matchCount]) {
                         matchCount++;
                     }
@@ -283,8 +340,10 @@ public class BpsWriter implements QueuedWriter {
             }
             // We filled too much of a gap or we have overlap between hunks
             else if (hunk.getDestinationIndex() < lastEndAddressExclusive) {
-                // TODO now: Log?
-                throw new IllegalArgumentException("Ovelapping hunks detected! TODO");
+                throw new IllegalArgumentException(
+                        "Overlapping hunks detected while filling gaps starting at "
+                                + hunk.getDestinationIndex() + " (previous end was "
+                                + lastEndAddressExclusive + ")");
             }
             // else the space matches up to the end of the previous hunk - we don't need to do
             // anything
@@ -297,17 +356,17 @@ public class BpsWriter implements QueuedWriter {
 
         // Ensure the target wasn't too short
         if (targetLength < lastEndAddressExclusive) {
-            // TODO now: Error message and LOG?
-            throw new IllegalArgumentException("TODO");
+            throw new IllegalArgumentException("Target length " + targetLength
+                    + " is shorter than hunk coverage ending at " + lastEndAddressExclusive);
         }
 
         // Add the final reads to the end of the file
         createSourceReadOrBlanksToFillSpace(lastEndAddressExclusive, targetLength, nextBlank,
                 nextBlankItr, fillerHunks);
 
-        // Now add in the filler hunks
-        // TODO now: Check for overlap? CheckAndAddAll?
-        hunks.addAll(fillerHunks);
+        for (BpsHunk fillerHunk : fillerHunks) {
+            checkAndAddHunk(fillerHunk);
+        }
     }
 
     private void createSourceReadOrBlanksToFillSpace(int fillFrom, int fillTo,
@@ -326,9 +385,8 @@ public class BpsWriter implements QueuedWriter {
             // no
             // blanks in this gap and can finish filling in with source reads
             if (nextBlank == null || nextBlank.getKey() >= fillTo) {
-                // Fill to the next hunk with source reads
-                toAppendTo.add(new BpsHunkSourceRead("FILLER_READ_" + fillFrom, fillFrom,
-                        fillTo - fillFrom));
+                appendSourceReadHunks(toAppendTo, "FILLER_READ_" + fillFrom, fillFrom,
+                        fillTo - fillFrom);
                 fillFrom = fillTo;
             }
             // Otherwise the next blank overlaps with the space we are filling and we need to see
@@ -339,9 +397,8 @@ public class BpsWriter implements QueuedWriter {
                 // to the start of
                 // the next blank
                 if (nextBlank.getKey() > fillFrom) {
-                    // Fill to the blank with source reads
-                    toAppendTo.add(new BpsHunkSourceRead("FILLER_READ_" + fillFrom, fillFrom,
-                            nextBlank.getKey() - fillFrom));
+                    appendSourceReadHunks(toAppendTo, "FILLER_READ_" + fillFrom, fillFrom,
+                            nextBlank.getKey() - fillFrom);
                     fillFrom = nextBlank.getKey(); // Causes the else to be hit in the next loop if
                                                    // not start of next hunk
                 }
@@ -352,8 +409,8 @@ public class BpsWriter implements QueuedWriter {
                     if (blankEnd >= fillTo) {
                         blankEnd = fillTo;
                     }
-                    toAppendTo.add(new BpsHunkSelfRead("BLANKING_HUNK_" + fillFrom, fillFrom,
-                            fillByte, blankEnd - fillFrom));
+                    appendBlankSelfReadHunks(toAppendTo, "BLANKING_HUNK_" + fillFrom, fillFrom,
+                            fillByte, blankEnd - fillFrom);
                     fillFrom = blankEnd;
                 }
             }
@@ -410,13 +467,13 @@ public class BpsWriter implements QueuedWriter {
 
         // We aren't making the rom longer so we pass the same length twice
         fillHunkSpacesWithBlanksOrSourceReads(sourceBytes.length, sourceBytes.length, toBlank);
-
-        // TODO now: Overlap & gap (target final length) checking?
+        optimizeAndPackHunks();
 
         // Set the offsets for writing
         BpsHunkCopy.setOffsetsForWriting();
 
-        // TODO now: Support differing sizes
+        // TODO: Support differing sizes. Not an issue now as GBC roms are fixed length and padded
+        // if needed
         byte[] targetBytes = sourceBytes.clone();
 
         // Start writing the bytes for the BPS and the header
@@ -433,8 +490,15 @@ public class BpsWriter implements QueuedWriter {
             bpsOs.write(ByteUtils.sevenBitEncode(0));
 
             // Write the hunks to the patch output stream
+            int romCursor = 0;
             for (BpsHunk hunk : hunks) {
+                hunk.checkRomCursor(romCursor);
                 hunk.write(bpsOs);
+                romCursor += hunk.getLength();
+            }
+            if (romCursor != targetBytes.length) {
+                throw new IllegalStateException("BPS hunks cover " + romCursor
+                        + " bytes of ROM but target length is " + targetBytes.length);
             }
 
             // Write the source CRC
@@ -454,11 +518,9 @@ public class BpsWriter implements QueuedWriter {
             fos.write(bpsBytes);
             fos.write(ByteUtils.toLittleEndianBytes(ByteUtils.computeCrc32(bpsBytes), 4));
         } catch (FileNotFoundException e) {
-            // TODO now: Log?
-            e.printStackTrace();
+            throw new IllegalStateException("Failed to create BPS file " + file.getPath(), e);
         } catch (IOException e) {
-            // TODO now: Log?
-            e.printStackTrace();
+            throw new IllegalStateException("Failed to write BPS file " + file.getPath(), e);
         }
     }
 }

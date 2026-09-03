@@ -36,11 +36,10 @@ public class BpsHunkCopy extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        // TODO now: More logic for target to make sure we don't make it too large or anything
         if (nextHunk instanceof BpsHunkCopy && doesHunkAlign(nextHunk)) {
-            if (copyFromIndex + getLength() == ((BpsHunkCopy) nextHunk).copyFromIndex) {
+            if (copyFromIndex + getLength() == ((BpsHunkCopy) nextHunk).copyFromIndex
+                    && canExtend(nextHunk)) {
                 extendCommonData(nextHunk);
-                // Nothing else to do
                 return true;
             }
         }
@@ -50,23 +49,22 @@ public class BpsHunkCopy extends BpsHunk {
     @Override
     public void apply(byte[] targetBytes, byte[] originalBytes) {
         switch (getType()) {
-        case SOURCE_COPY:
-            ByteUtils.copyBytes(targetBytes, getDestinationIndex(), originalBytes, copyFromIndex,
-                    getLength());
-            break;
-        case TARGET_COPY:
-            ByteUtils.copyBytes(targetBytes, getDestinationIndex(), targetBytes, copyFromIndex,
-                    getLength());
-            break;
-        default:
-            throw new IllegalArgumentException(
-                    "Internal error: Invalid type for copy BPS Hunk was found:" + getType());
+            case SOURCE_COPY:
+                ByteUtils.copyBytes(targetBytes, getDestinationIndex(), originalBytes,
+                        copyFromIndex, getLength());
+                break;
+            case TARGET_COPY:
+                ByteUtils.copyBytes(targetBytes, getDestinationIndex(), targetBytes, copyFromIndex,
+                        getLength());
+                break;
+            default:
+                throw new IllegalArgumentException(
+                        "Internal error: Invalid type for copy BPS Hunk was found:" + getType());
         }
     }
 
     @Override
     public void write(ByteArrayOutputStream bpsOs) throws IOException {
-        checkDestinationIndex(bpsOs);
         writeHunkHeader(bpsOs);
 
         // These are stored as offsets from the last used value
