@@ -19,7 +19,7 @@ public class BpsHunkSourceRead extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        if (nextHunk instanceof BpsHunkSourceRead && doesHunkAlign(nextHunk)) {
+        if (nextHunk instanceof BpsHunkSourceRead && doesHunkAlign(nextHunk) && canExtend(nextHunk)) {
             extendCommonData(nextHunk);
             // Nothing else to do!
             return true;
@@ -35,7 +35,6 @@ public class BpsHunkSourceRead extends BpsHunk {
 
     @Override
     public void write(ByteArrayOutputStream bpsOs) throws IOException {
-        checkDestinationIndex(bpsOs);
         writeHunkHeader(bpsOs);
         // Nothing else to write
     }
