@@ -10,24 +10,6 @@ public abstract class BpsHunk implements Comparable<BpsHunk>, Cloneable {
     public static final String DEFAULT_NAME = "UNNAMED_HUNK";
     public static final int MAX_HUNK_LENGTH = 0xFFFF;
 
-    public enum BpsHunkType {
-        SOURCE_READ(0), SELF_READ(1), SOURCE_COPY(2), TARGET_COPY(3);
-
-        private byte value;
-
-        BpsHunkType(int inValue) {
-            if (inValue > ByteUtils.MAX_BYTE_VALUE || inValue < 0) {
-                throw new IllegalArgumentException(
-                        "Invalid constant input for " + "BpsHunkType enum: " + inValue);
-            }
-            value = (byte) inValue;
-        }
-
-        byte getValue() {
-            return value;
-        }
-    }
-
     public int compareTo(BpsHunk other) {
         return this.destinationIndex - other.destinationIndex;
     }

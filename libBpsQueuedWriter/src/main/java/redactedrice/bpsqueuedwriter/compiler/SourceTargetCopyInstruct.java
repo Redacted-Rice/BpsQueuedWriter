@@ -5,8 +5,8 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
 
+import redactedrice.bpsqueuedwriter.BpsHunkCopyType;
 import redactedrice.bpsqueuedwriter.BpsWriter;
-import redactedrice.bpsqueuedwriter.BpsWriter.BpsHunkCopyType;
 import redactedrice.compiler.instructions.FixedLengthInstruction;
 import redactedrice.gbcframework.QueuedWriter;
 import redactedrice.gbcframework.addressing.AssignedAddresses;

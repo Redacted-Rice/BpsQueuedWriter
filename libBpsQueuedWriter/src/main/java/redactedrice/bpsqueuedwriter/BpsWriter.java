@@ -15,26 +15,11 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 
-import redactedrice.bpsqueuedwriter.BpsHunk.BpsHunkType;
 import redactedrice.gbcframework.QueuedWriter;
 import redactedrice.gbcframework.addressing.AddressRange;
 import redactedrice.gbcframework.utils.ByteUtils;
 
 public class BpsWriter implements QueuedWriter {
-    public enum BpsHunkCopyType {
-        SOURCE_COPY(BpsHunkType.SOURCE_COPY), TARGET_COPY(BpsHunkType.TARGET_COPY);
-
-        private BpsHunkType type;
-
-        private BpsHunkCopyType(BpsHunkType type) {
-            this.type = type;
-        }
-
-        public BpsHunkType asBpsHunkType() {
-            return type;
-        }
-    }
-
     // The target address and the hunk that starts at the target address
     byte[] sourceBytes;
     TreeSet<BpsHunk> hunks;
@@ -123,16 +108,11 @@ public class BpsWriter implements QueuedWriter {
         addCopyHunksWithFinalize(name, destinationIndex, type, size, copyFromStartIndex);
     }
 
-    @FunctionalInterface
-    private interface ChunkedHunkBuilder {
-        BpsHunk build(String chunkName, int destinationIndex, int chunkLength, int chunkOffset);
-    }
-
     private static String chunkName(String namePrefix, int chunkIndex) {
         return chunkIndex == 0 ? namePrefix : namePrefix + "_chunk" + chunkIndex;
     }
 
-    private void buildChunkedHunks(String namePrefix, int destinationIndex, int length,
+    private static void buildChunkedHunks(String namePrefix, int destinationIndex, int length,
             ChunkedHunkBuilder builder, Consumer<BpsHunk> hunkConsumer) {
         int remaining = length;
         int dest = destinationIndex;
