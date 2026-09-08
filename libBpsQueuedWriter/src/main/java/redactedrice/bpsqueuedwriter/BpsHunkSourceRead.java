@@ -19,7 +19,7 @@ public class BpsHunkSourceRead extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        if (nextHunk instanceof BpsHunkSourceRead && doesHunkAlign(nextHunk) && canExtend(nextHunk)) {
+        if (nextHunk instanceof BpsHunkSourceRead && doesHunkAlign(nextHunk)) {
             extendCommonData(nextHunk);
             // Nothing else to do!
             return true;

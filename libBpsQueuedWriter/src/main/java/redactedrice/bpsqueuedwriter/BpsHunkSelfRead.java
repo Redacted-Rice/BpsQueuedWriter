@@ -43,7 +43,7 @@ public class BpsHunkSelfRead extends BpsHunk {
 
     @Override
     public boolean tryExtend(BpsHunk nextHunk) {
-        if (nextHunk instanceof BpsHunkSelfRead && doesHunkAlign(nextHunk) && canExtend(nextHunk)) {
+        if (nextHunk instanceof BpsHunkSelfRead && doesHunkAlign(nextHunk)) {
             extendCommonData(nextHunk);
             this.data.addAll(((BpsHunkSelfRead) nextHunk).data);
             return true;
