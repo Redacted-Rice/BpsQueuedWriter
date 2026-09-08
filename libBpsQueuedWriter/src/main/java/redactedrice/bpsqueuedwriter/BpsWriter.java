@@ -114,6 +114,7 @@ public class BpsWriter implements QueuedWriter {
 
     private static void buildChunkedHunks(String namePrefix, int destinationIndex, int length,
             ChunkedHunkBuilder builder, Consumer<BpsHunk> hunkConsumer) {
+        BpsHunk.validateHunkLength(length);
         int remaining = length;
         int dest = destinationIndex;
         int chunkIndex = 0;
@@ -177,11 +178,11 @@ public class BpsWriter implements QueuedWriter {
         while (hunkSpot < hunkDesiredBytes.length) {
             // Look for a segment match starting with this byte in the hunk
             AddressRange bestMatch = getBestMatch(hunkDesiredBytes, hunkSpot);
-            int matchSize = Math.min(bestMatch.size(), BpsHunk.MAX_HUNK_LENGTH);
+            int fullMatchSize = bestMatch.size();
 
             // If its worth copying (right now at least 4 length)
-            if (matchSize > 3 || // TODO: Make an option?
-                    hunkSpot + matchSize == hunkDesiredBytes.length) // Matches to the end
+            if (fullMatchSize > 3 || // TODO: Make an option?
+                    hunkSpot + fullMatchSize == hunkDesiredBytes.length) // Matches to the end
             {
                 // Write the self copy if needed
                 if (lastMatchSpot != hunkSpot) {
@@ -191,16 +192,22 @@ public class BpsWriter implements QueuedWriter {
                             Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkSpot));
                 }
 
-                // Now update the last match spot and write from the current spot to there
-                lastMatchSpot = hunkSpot + matchSize;
-                checkAndAddHunk(new BpsHunkCopy(selfReadBeingCreatedName + hunksCreated++ + "_copy",
-                        selfReadBeingCreatedDestIndex + hunkSpot, BpsHunkCopyType.SOURCE_COPY,
-                        matchSize, bestMatch.getStart()));
-
-                hunkSpot = lastMatchSpot;
-                if (matchSize < bestMatch.size()) {
-                    continue;
+                int copyFromIndex = bestMatch.getStart();
+                int matchDestIndex = selfReadBeingCreatedDestIndex + hunkSpot;
+                int matchRemaining = fullMatchSize;
+                while (matchRemaining > 0) {
+                    int chunkSize = Math.min(matchRemaining, BpsHunk.MAX_HUNK_LENGTH);
+                    checkAndAddHunk(new BpsHunkCopy(
+                            selfReadBeingCreatedName + hunksCreated++ + "_copy", matchDestIndex,
+                            BpsHunkCopyType.SOURCE_COPY, chunkSize, copyFromIndex));
+                    copyFromIndex += chunkSize;
+                    matchDestIndex += chunkSize;
+                    matchRemaining -= chunkSize;
                 }
+
+                lastMatchSpot = hunkSpot + fullMatchSize;
+                hunkSpot = lastMatchSpot;
+                continue;
             }
             hunkSpot++;
         }
