@@ -70,7 +70,7 @@ public class SourceTargetCopyInstruct extends FixedLengthInstruction {
             int instructAddr = RomUtils.convertToGlobalAddress(instructionAddress);
             String currBlockName = writer.getCurrentBlockName();
             ((BpsWriter) writer).newCopyHunk(currBlockName + "SourceTargetCopyInstructHunk",
-                    instructAddr, type, copyFromStartIndex, getSize());
+                    instructAddr, type, getSize(), copyFromStartIndex);
             ((BpsWriter) writer).startNewBlock(instructAddr + getSize(),
                     currBlockName + "_continued");
         } else {
