@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.Consumer;
 
 import redactedrice.gbcframework.QueuedWriter;
 import redactedrice.gbcframework.addressing.AddressRange;
@@ -108,43 +107,16 @@ public class BpsWriter implements QueuedWriter {
         addCopyHunksWithFinalize(name, destinationIndex, type, size, copyFromStartIndex);
     }
 
-    private static String chunkName(String namePrefix, int chunkIndex) {
-        return chunkIndex == 0 ? namePrefix : namePrefix + "_chunk" + chunkIndex;
-    }
-
-    private static void buildChunkedHunks(String namePrefix, int destinationIndex, int length,
-            ChunkedHunkBuilder builder, Consumer<BpsHunk> hunkConsumer) {
-        BpsHunk.validateHunkLength(length);
-        int remaining = length;
-        int dest = destinationIndex;
-        int chunkIndex = 0;
-        while (remaining > 0) {
-            int chunkLength = Math.min(remaining, BpsHunk.MAX_HUNK_LENGTH);
-            int chunkOffset = dest - destinationIndex;
-            hunkConsumer.accept(builder.build(chunkName(namePrefix, chunkIndex), dest, chunkLength,
-                    chunkOffset));
-            dest += chunkLength;
-            remaining -= chunkLength;
-            chunkIndex++;
-        }
-    }
-
     private void addSourceReadHunksWithFinalize(String namePrefix, int destinationIndex,
             int length) {
         finalizeSelfReadBeingCreated();
-        buildChunkedHunks(namePrefix, destinationIndex, length,
-                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSourceRead(chunkName,
-                        dest, chunkLength),
-                this::checkAndAddHunk);
+        checkAndAddHunk(new BpsHunkSourceRead(namePrefix, destinationIndex, length));
     }
 
     private void addCopyHunksWithFinalize(String name, int destinationIndex, BpsHunkCopyType type,
             int size, int copyFromStartIndex) {
         finalizeSelfReadBeingCreated();
-        buildChunkedHunks(name, destinationIndex, size,
-                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkCopy(chunkName, dest,
-                        type, chunkLength, copyFromStartIndex + chunkOffset),
-                this::checkAndAddHunk);
+        checkAndAddHunk(new BpsHunkCopy(name, destinationIndex, type, size, copyFromStartIndex));
     }
 
     private void finalizeSelfReadBeingCreated() {
@@ -192,18 +164,9 @@ public class BpsWriter implements QueuedWriter {
                             Arrays.copyOfRange(hunkDesiredBytes, lastMatchSpot, hunkSpot));
                 }
 
-                int copyFromIndex = bestMatch.getStart();
-                int matchDestIndex = selfReadBeingCreatedDestIndex + hunkSpot;
-                int matchRemaining = fullMatchSize;
-                while (matchRemaining > 0) {
-                    int chunkSize = Math.min(matchRemaining, BpsHunk.MAX_HUNK_LENGTH);
-                    checkAndAddHunk(new BpsHunkCopy(
-                            selfReadBeingCreatedName + hunksCreated++ + "_copy", matchDestIndex,
-                            BpsHunkCopyType.SOURCE_COPY, chunkSize, copyFromIndex));
-                    copyFromIndex += chunkSize;
-                    matchDestIndex += chunkSize;
-                    matchRemaining -= chunkSize;
-                }
+                checkAndAddHunk(new BpsHunkCopy(selfReadBeingCreatedName + hunksCreated++ + "_copy",
+                        selfReadBeingCreatedDestIndex + hunkSpot, BpsHunkCopyType.SOURCE_COPY,
+                        fullMatchSize, bestMatch.getStart()));
 
                 lastMatchSpot = hunkSpot + fullMatchSize;
                 hunkSpot = lastMatchSpot;
@@ -221,26 +184,17 @@ public class BpsWriter implements QueuedWriter {
     }
 
     private void checkAndAddSelfReadBytes(String name, int destinationIndex, byte[] data) {
-        buildChunkedHunks(name, destinationIndex, data.length,
-                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSelfRead(chunkName, dest,
-                        Arrays.copyOfRange(data, chunkOffset, chunkOffset + chunkLength)),
-                this::checkAndAddHunk);
+        checkAndAddHunk(new BpsHunkSelfRead(name, destinationIndex, data));
     }
 
     private void appendSourceReadHunks(TreeSet<BpsHunk> toAppendTo, String namePrefix,
             int destinationIndex, int length) {
-        buildChunkedHunks(namePrefix, destinationIndex, length,
-                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSourceRead(chunkName,
-                        dest, chunkLength),
-                toAppendTo::add);
+        toAppendTo.add(new BpsHunkSourceRead(namePrefix, destinationIndex, length));
     }
 
     private void appendBlankSelfReadHunks(TreeSet<BpsHunk> toAppendTo, String namePrefix,
             int destinationIndex, byte fillByte, int length) {
-        buildChunkedHunks(namePrefix, destinationIndex, length,
-                (chunkName, dest, chunkLength, chunkOffset) -> new BpsHunkSelfRead(chunkName, dest,
-                        fillByte, chunkLength),
-                toAppendTo::add);
+        toAppendTo.add(new BpsHunkSelfRead(namePrefix, destinationIndex, fillByte, length));
     }
 
     private AddressRange getBestMatch(byte[] hunkDesiredBytes, int hunkSpot) {
